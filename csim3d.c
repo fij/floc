@@ -41,8 +41,9 @@ int main( int ArgC, char * ArgV[] )
 	 && ( 0 > _WT_MAX      || _WT_NOW - _WT_START < _WT_MAX      ) )
   {
 #ifdef XWIN
-      // drawing data: (i) at the beginning, (ii) at the requested simulation time interval&&      if( 0.0 == _ST_NOW || floor( _ST_NOW / _DRAW_FREQ_ST ) > floor( _ST_PREV / _DRAW_FREQ_ST ) ){
-	  XPutPic( _ColorCode, _NPC, _X11DisplayAreaSize, _X11WinWidth, _X11WinHeight, _N, _ST_NOW, 
+      // drawing data: (i) at the beginning, (ii) at the requested simulation time interval
+      if( 0.0 == _ST_NOW || floor( _ST_NOW / _DRAW_FREQ_ST ) > floor( _ST_PREV / _DRAW_FREQ_ST ) ){
+          XPutPic( _ColorCode, _NPC, _X11DisplayAreaSize, _X11WinWidth, _X11WinHeight, _N, _ST_NOW, 
 		   & _X, & _Y, & _Z, & _VX, & _VY, & _VZ, & _V, _V0, & _EX, & _EY, & _EZ,
 		   _TAU, _S, _DT, _L, _R, _X11_DrawMethod, _X11InfoFieldWidth, _X11Margin, _X11_PIC_MAGN, _X11_OBJ_MAGN, _DRAW_SLEEP_WT,
 		   & _X11Graph, _X11GraphFieldWidth, _X11GraphFieldHeight, & _X11GraphLenNow, _X11GraphFieldUpEnd, _X11LineHeight );
