@@ -43,8 +43,8 @@ int main( int ArgC, char * ArgV[] )
 #ifdef XWIN
       // drawing data: (i) at the beginning, (ii) at the requested simulation time interval
       if( 0.0 == _ST_NOW || floor( _ST_NOW / _DRAW_FREQ_ST ) > floor( _ST_PREV / _DRAW_FREQ_ST ) ){
-          XPutPic( _ColorCode, _NPC, _X11DisplayAreaSize, _X11WinWidth, _X11WinHeight, _N, _ST_NOW, 
-		   & _X, & _Y, & _Z, & _VX, & _VY, & _VZ, & _V, _V0, & _EX, & _EY, & _EZ,
+	  XPutPic( _ColorCode, _NPC, _X11DisplayAreaSize, _X11WinWidth, _X11WinHeight, _N, _ST_NOW, 
+		   & _X, & _Y, & _Z, & _VX, & _VY, & _VZ, _V0, & _EX, & _EY, & _EZ,
 		   _TAU, _S, _DT, _L, _R, _X11_DrawMethod, _X11InfoFieldWidth, _X11Margin, _X11_PIC_MAGN, _X11_OBJ_MAGN, _DRAW_SLEEP_WT,
 		   & _X11Graph, _X11GraphFieldWidth, _X11GraphFieldHeight, & _X11GraphLenNow, _X11GraphFieldUpEnd, _X11LineHeight );
       }
@@ -56,7 +56,7 @@ int main( int ArgC, char * ArgV[] )
 	                 // IF the simulation is started from the disordered state, 
 	       && (    (    ( 0 == _START_STATE )
 			    // THEN save at the selected t_i = 1 * 10 ** ( i / n ) simulation time values
-			 && (   floor( _SAVE_FREQ_N * log( _ST_PREV ) / log( 10.0 ) ) 
+			 && (   floor( _SAVE_FREQ_N * log( _ST_PREV ) / log( 10.0 ) )
 			      < floor( _SAVE_FREQ_N * log( _ST_NOW  ) / log( 10.0 ) ) 
 			    )
 		       )

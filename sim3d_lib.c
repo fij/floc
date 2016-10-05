@@ -84,7 +84,7 @@ double _TAU; // time constant for adjusting the magnitude of the velocity to the
 double _S; // magnitude of noise vector
 double _DT; // time step of a full simulation update
 double * _X, * _Y, * _Z, * _X_M, * _Y_M, * _Z_M; // coordinates of the particle at the current time point and at the midpoint
-double * _VX, * _VY, * _VZ, * _VX_M, * _VY_M, * _VZ_M, * _V, * _V_M; // velocities at the current time point and at the midpoint
+double * _VX, * _VY, * _VZ, * _VX_M, * _VY_M, * _VZ_M, * _V, * _V_M; // components of the velocity and the speed at the current time point and the midpoint
 // EX,EY,EZ are the (x,y,z) coordinates (projections) of the unit vector pointing in the direction of motion (_M suffix: at the midpoint)
 double * _EX, * _EY, * _EZ, * _EX_M, * _EY_M, * _EZ_M; 
 double * _F_X_SUM, * _F_Y_SUM, * _F_Z_SUM, * _F_X_SUM_M, * _F_Y_SUM_M, * _F_Z_SUM_M; // sum of forces acting on a particle now and at the midpoint
@@ -203,7 +203,7 @@ void InsertParticleIntoBookKeepingTable( int i, int pfx_i, int pfy_i, int pfz_i,
 
 // ---------------------------------------
 
-// generate a 3d unit (unit length) vector pointing toward a direction distributed evenly in the full 4 PI solid angle
+// generate a 3d unit (unit length) vector pointing in a direction distributed evenly in the full 4 PI solid angle
 void Generate3dVector_randomDir_unitLength( double * coord_x, double * coord_y, double * coord_z )
 {
   // (1) generate random coordinates in the (+/-1,+/-1,+/-1) cube
@@ -216,10 +216,13 @@ void Generate3dVector_randomDir_unitLength( double * coord_x, double * coord_y, 
       sumSqr = SQR( * coord_x ) + SQR( * coord_y ) + SQR( * coord_z );
   }while( sumSqr < .01 || sumSqr >= 1 );
 
+  // 1.0 / the length of the vector
+  double one_over_length_of_vector = pow( sumSqr, -0.5 );
+
   // normalize the vector to unit length
-  * coord_x /= sqrt(sumSqr);
-  * coord_y /= sqrt(sumSqr);
-  * coord_z /= sqrt(sumSqr);
+  * coord_x *= one_over_length_of_vector;
+  * coord_y *= one_over_length_of_vector;
+  * coord_z *= one_over_length_of_vector;
 }
 
 // ---------------------------------------
@@ -410,40 +413,28 @@ void Init( int argc, char * argv[], int * rndSeed, int * n, int * startState, do
   //   IF startState = 0, THEN the direction of motion of each particle is a _different_ random unit vector selected from the full 4 PI solid angle
   switch ( * startState ) {
   case 0:
-      // for each particle: set the magnitude of the velocity to the preferred magnitude, 
-      // set random direction of velocity, set velocity components
-      for( i=0; i < *n; ++i ){
-	  // set magnitude of the velocity
-	  ( *v)[i] = *v0;
-	  // generate a 3d unit (i.e., length=1) vector pointing toward a direction distributed evenly in the 4 PI solid angle
-	  Generate3dVector_randomDir_unitLength( * ex + i, * ey + i, * ez + i );
-	  // set the velocity vector
-	  (*vx)[i] = (*v)[i] * (*ex)[i];
-	  (*vy)[i] = (*v)[i] * (*ey)[i];
-	  (*vz)[i] = (*v)[i] * (*ez)[i];
-      }
+      // for each particle: set _different_ random direction for the velocity
+      // generate a 3d unit (i.e., length=1) vector pointing in a direction distributed evenly in the 4 PI solid angle
+      for( i=0; i < *n; ++i ){ Generate3dVector_randomDir_unitLength( * ex + i, * ey + i, * ez + i ); }
       break;
- // all other cases of startState:
- default:
-     // generate a 3d unit (i.e., length=1) vector pointing toward a direction distributed evenly in the 4 PI solid angle
-     // save this unit vector as the direction of motion of the first particle (i.e., the particle with the index zero)
-     Generate3dVector_randomDir_unitLength( * ex + 0, * ey + 0, * ez + 0 );
-     // for each particle: 
-      for( i=0; i < *n; ++i ){
-	  // set the direction of the velocity to the same selected direction
-	  (*ex)[i] = (*ex)[0];
-	  (*ey)[i] = (*ey)[0];
-	  (*ez)[i] = (*ez)[0];
-	  // set speed (magnitude of the velocity vector) to the preferred speed
-	  ( *v)[i] = *v0;
-	  // set the velocity vector
-	  (*vx)[i] = (*v)[i] * (*ex)[i];
-	  (*vy)[i] = (*v)[i] * (*ey)[i];
-	  (*vz)[i] = (*v)[i] * (*ez)[i];
-      }
+  // all other cases of startState:
+  default:
+      // generate a 3d unit (i.e., length=1) vector pointing in a direction distributed evenly in the 4 PI solid angle
+      // save this unit vector as the direction of motion of the first particle (i.e., the particle with the index zero)
+      Generate3dVector_randomDir_unitLength( * ex + 0, * ey + 0, * ez + 0 );
+      // for each particle: set _same_ random direction for the velocity
+      i=0; while(++i < *n){ (*ex)[i] = (*ex)[0]; (*ey)[i] = (*ey)[0]; (*ez)[i] = (*ez)[0]; }
       break;
   }
-
+  // for each particle: set speed and velocity vector
+  for( i=0; i < *n; ++i ){
+      // set the particle's speed to the preferred speed
+      (*v)[i] = *v0;
+      // set the velocity vector using the magnitude of the velocity vector (i.e., the speed) and the direction of the velocity vector
+      (*vx)[i] = (*v)[i] * (*ex)[i];
+      (*vy)[i] = (*v)[i] * (*ey)[i];
+      (*vz)[i] = (*v)[i] * (*ez)[i];
+  }
 
   // ------- initializing other variables --------
   *warmUpTime = 1.0 * *n * *l / *v0; // simulation "warm up time" when starting from the ordered state, see in the header of this file at "output"
@@ -510,7 +501,7 @@ void EfficiencyAndDirectionOfMotion( int n, double * vx, double * vy, double * v
 
 #ifdef XWIN
 void XPutPic( int * colorCode, int nParticleColors, int x11displayAreaSize, int x11winWidth, int x11winHeight, int n, double simTimeNow,
-	      double ** x, double ** y, double ** z, double ** vx, double ** vy, double ** vz, double ** v, double v0, double ** ex, double ** ey, double ** ez,
+	      double ** x, double ** y, double ** z, double ** vx, double ** vy, double ** vz, double v0, double ** ex, double ** ey, double ** ez,
 	      double tau, double s, double dt, double l, double r,
 	      int x11drawMethod, int x11infoFieldWidth, int x11margin, double x11picMagn, double x11objMagn, int drawSleepWT,
 	      double ** x11graph, int x11graphFieldWidth, int x11graphFieldHeight, int * x11graphLenNow, int x11graphFieldUpEnd, int x11lineHeight )
@@ -590,7 +581,7 @@ void XPutPic( int * colorCode, int nParticleColors, int x11displayAreaSize, int 
   // 4a, update the efficiency graph
   //
   // IF the efficiency graph has reached its maximum length,
-  // THEN shift all values to the left, i.e., towards the front of the list
+  // THEN shift all values to the left, i.e., toward the front of the list
   if( *x11graphLenNow == x11graphFieldWidth ){ int i; for( i = 0 ; i <= x11graphFieldWidth - 2 ; ++i ){ (*x11graph)[i] = (*x11graph)[i+1]; }}
   // ELSE: increment the length of the graph
   else{ ++ *x11graphLenNow; }
@@ -683,7 +674,7 @@ void AddInteractionsToForces( int bn, int **** bxyz2n, int **** bxyz2i, int ****
       // (dx,dy,dz): relative position of the other grid cell from the current grid cell
       int dx; for(dx=-1; dx<=1; ++dx){ int dy; for(dy=-1; dy<=1; ++dy){ int dz; for(dz=-1; dz<=1; ++dz){
 	  // IF the investigated other grid cell is the same as the current grid cell, THEN proceed only if this grid cell contains at least two particles 
-	  if( 0 == dx && 0 == dy && 0 == dz ){
+	  if( ! dx && ! dy && ! dz ){ // if( 0 == dx && 0 == dy && 0 == dz ){
 	      if( 2 <= (*bxyz2n)[ix][iy][iz] ){
 		  // loop through the list of particles in the current grid cell
 		  // j1: the index of the first particle in the current grid cell
@@ -699,10 +690,10 @@ void AddInteractionsToForces( int bn, int **** bxyz2n, int **** bxyz2i, int ****
 			  double distSqr = SQR( signed_x_dist_from_j2_to_j1 ) + SQR( signed_y_dist_from_j2_to_j1 ) + SQR( signed_z_dist_from_j2_to_j1 );
 			  // the two particles interact only if the square of their distance is below the square of the interaction cutoff radius
 			  if( distSqr < cutoff_rSqr ){
-			      // r is the distance between the two particles' centers
-			      // (1/r^2) is the magnitude of the repulsion force between the two particles
-			      // divide this by r = sqrt(r^2) for normalization before computing the direction connecting the two particles
-			      double f_over_r = ( 1.0 / distSqr ) / sqrt( distSqr );
+			      // r is the distance between the two particles (both are thought to have zero size)
+			      // F = (1/r^2) is the magnitude of the repulsion force between the two particles
+			      // Therefore, F / r  =  1 / r^3 =  ( r^2 ) ^ (-3/2)
+			      double f_over_r = pow( distSqr, -1.5 );
 			      double fx = signed_x_dist_from_j2_to_j1 * f_over_r;
 			      double fy = signed_y_dist_from_j2_to_j1 * f_over_r;
 			      double fz = signed_z_dist_from_j2_to_j1 * f_over_r;
@@ -733,9 +724,14 @@ void AddInteractionsToForces( int bn, int **** bxyz2n, int **** bxyz2i, int ****
 	      int jy = iy + dy; int yo = 0; if( jy < 0 ){ jy += bn; --yo; }else if( jy > bn-1 ){ jy -= bn; ++yo; }
 	      int jz = iz + dz; int zo = 0; if( jz < 0 ){ jz += bn; --zo; }else if( jz > bn-1 ){ jz -= bn; ++zo; }
 	      //
-	      // proceed only if the other grid cell contains at least one particle and its grid cell index is larger than the current grid cell's index
-              if( ( (*bxyz2i)[jx][jy][jz] > (*bxyz2i)[ix][iy][iz] ) && (*bxyz2n)[jx][jy][jz] ){
-
+	      // proceed only:
+	      // IF  the grid cell index of the other grid cell is larger than the current grid cell's index
+	      //     - note that this condition ensures that each pair of particles is considered only once
+              if(    ( (*bxyz2i)[jx][jy][jz] > (*bxyz2i)[ix][iy][iz] )
+	      // AND the other grid cell contains at least one particle
+		  && (*bxyz2n)[jx][jy][jz]
+		)
+	      {
 		  // loop through the list of particles in the _current_ grid cell, k1: the index of the particle in the _current_ grid cell
  		  int k1 = (*bp)[ix][iy][iz]; while( CHAIN_END != k1 ){
 		      // loop through the list of particles in the _other_ grid cell, k2: the index of the particle in the _other_ grid cell
@@ -748,10 +744,10 @@ void AddInteractionsToForces( int bn, int **** bxyz2n, int **** bxyz2i, int ****
 			  double distSqr = SQR( signed_x_dist_from_k2_to_k1 ) + SQR( signed_y_dist_from_k2_to_k1 ) + SQR( signed_z_dist_from_k2_to_k1 );
 			  // the two particles interact only if the square of their distance is below the square of the interaction cutoff radius
 			  if( distSqr < cutoff_rSqr ){
-			      // r is the distance between the two particles' centers
-			      // (1/r^2) is the magnitude of the repulsion force between the two particles
-			      // divide this by r = sqrt(r^2) for normalization before computing the direction connecting the two particles
-			      double f_over_r = ( 1.0 / distSqr ) / sqrt( distSqr );
+			      // r is the distance between the two particles (both are thought to have zero size)
+			      // F = (1/r^2) is the magnitude of the repulsion force between the two particles
+			      // Therefore, F / r  =  1 / r^3 =  ( r^2 ) ^ (-3/2)
+			      double f_over_r = pow( distSqr, -1.5 );
 			      double fx = signed_x_dist_from_k2_to_k1 * f_over_r;
 			      double fy = signed_y_dist_from_k2_to_k1 * f_over_r;
 			      double fz = signed_z_dist_from_k2_to_k1 * f_over_r;
@@ -823,9 +819,17 @@ void UpdateSim_MidpMeth( double dt, int n, double v0, double ** v, double ** v_m
   // 1a, for each particle: initialize the components of the sum of forces acting on the particle
   int i; for(i=0; i<n; ++i){ (*fxSum)[i] = 0.0; (*fySum)[i] = 0.0; (*fzSum)[i] = 0.0; };
 
-  // 1b, self-propelling force, q = (v_0-v)/tau
+  // 1b, self-propelling force with a magnitude of  q = (v_0-v)/tau
   // IF the magnitude of the particle's current velocity is not v0, THEN it has a non-zero self-propelling force
-  for(i=0; i<n; ++i){ if( (*v)[i] != v0 ){ double q = (v0-(*v)[i])/tau; (*fxSum)[i] += q * (*ex)[i]; (*fySum)[i] += q * (*ey)[i]; (*fzSum)[i] += q * (*ez)[i]; }}
+  double one_over_tau = 1.0 / tau;
+  for(i=0; i<n; ++i){
+      // compute the magnitude of the self-propelling force
+      double q = ( v0 - (*v)[i] ) * one_over_tau;
+      // add components of the self-propelling force to the components of the sum of forces acting on the <i>th particle
+      (*fxSum)[i] += q * (*ex)[i];
+      (*fySum)[i] += q * (*ey)[i];
+      (*fzSum)[i] += q * (*ez)[i]; 
+  }
     
   // 1c, add interactions to the forces
   AddInteractionsToForces( bn, bxyz2n, bxyz2i, bp, pn, x, y, z, cutoff_rSqr, fxSum, fySum, fzSum, l );
@@ -836,7 +840,7 @@ void UpdateSim_MidpMeth( double dt, int n, double v0, double ** v, double ** v_m
       // noise amplitude (length of the noise vector)
       double noiseMagn = s * sqrt( .5 * dt );
       for(i=0; i<n; ++i){
-	  // generate a unit vector pointing toward a direction distributed evenly in the 4 PI solid angle
+	  // generate a unit vector pointing in a direction distributed evenly in the 4 PI solid angle
 	  double noiseDir_x, noiseDir_y, noiseDir_z;
 	  Generate3dVector_randomDir_unitLength( & noiseDir_x, & noiseDir_y, & noiseDir_z );
 	  // add constant times this unit vector to the sum of the forces acting on the <i>th particle
@@ -858,12 +862,13 @@ void UpdateSim_MidpMeth( double dt, int n, double v0, double ** v, double ** v_m
       (*vx_m)[i] = (*vx)[i] + .5 * dt * (*fxSum)[i];
       (*vy_m)[i] = (*vy)[i] + .5 * dt * (*fySum)[i];
       (*vz_m)[i] = (*vz)[i] + .5 * dt * (*fzSum)[i];
-      // speed (i.e., magnitude of the velocity vector) at the midpoint
-      ( *v_m)[i] = sqrt( SQR( (*vx_m)[i] ) + SQR( (*vy_m)[i] ) + SQR( (*vz_m)[i] ) );
+      // speed at the midpoint
+      (*v_m)[i] = sqrt( SQR( (*vx_m)[i] ) + SQR( (*vy_m)[i] ) + SQR( (*vz_m)[i] ) );
+      double one_over_v_m = 1.0 / (*v_m)[i];
       // direction of the velocity vector at the midpoint
-      (*ex_m)[i] = (*vx_m)[i] / (*v_m)[i];
-      (*ey_m)[i] = (*vy_m)[i] / (*v_m)[i];
-      (*ez_m)[i] = (*vz_m)[i] / (*v_m)[i];
+      (*ex_m)[i] = (*vx_m)[i] * one_over_v_m;
+      (*ey_m)[i] = (*vy_m)[i] * one_over_v_m;
+      (*ez_m)[i] = (*vz_m)[i] * one_over_v_m;
   }
   // 2b, particles leaving the field should be re-inserted using the periodic boundary conditions
   //     NOTE: the interval [0,L) is closed from below and open from above
@@ -873,7 +878,7 @@ void UpdateSim_MidpMeth( double dt, int n, double v0, double ** v, double ** v_m
       if( (*z_m)[i] < 0 ){ (*z_m)[i] += l; }else if( (*z_m)[i] >= l ){ (*z_m)[i] -= l; }
   }  
   // 2c, compute grid cell indexes at the midpoint, bn_over_l = bn/l
-  double bn_over_l = bn/l; for(i=0; i<n; ++i){ CoordsToGridCellIndexes( (*x_m)[i], (*y_m)[i], (*z_m)[i], bn, bn_over_l, *pfx_m + i, *pfy_m + i, *pfz_m + i ); }
+  double bn_over_l = 1.0*bn/l; for(i=0; i<n; ++i){ CoordsToGridCellIndexes( (*x_m)[i], (*y_m)[i], (*z_m)[i], bn, bn_over_l, *pfx_m + i, *pfy_m + i, *pfz_m + i ); }
   // 2d, set book-keeping data structures at the midpoint
   // default: identical to original values
   for(i=0; i<n; ++i){ (*pn_m)[i] = (*pn)[i]; }; 
@@ -897,8 +902,15 @@ void UpdateSim_MidpMeth( double dt, int n, double v0, double ** v, double ** v_m
 
   // 3b, self-propelling force
   // IF the magnitude of the particle's current velocity is not v0, THEN it has a non-zero self-propelling force
-  for(i=0; i<n; ++i){ if( (*v_m)[i] != v0 ){
-      double q = (v0-(*v_m)[i])/tau; (*fxSum_m)[i] += q * (*ex_m)[i]; (*fySum_m)[i] += q * (*ey_m)[i]; (*fzSum_m)[i] += q * (*ez_m)[i]; }}
+  /*double one_over_tau = 1.0 / tau;*/
+  for(i=0; i<n; ++i){
+      // compute the magnitude of the self-propelling force
+      double q_m = ( v0 - (*v_m)[i] ) * one_over_tau;
+      // add components of the self-propelling force to the components of the sum of forces acting on the <i>th particle
+      (*fxSum_m)[i] += q_m * (*ex_m)[i];
+      (*fySum_m)[i] += q_m * (*ey_m)[i];
+      (*fzSum_m)[i] += q_m * (*ez_m)[i]; 
+  }
 
   // 3c, add interactions to the forces
   AddInteractionsToForces( bn, bxyz2n_m, bxyz2i, bp_m, pn_m, x_m, y_m, z_m, cutoff_rSqr, fxSum_m, fySum_m, fzSum_m, l );
@@ -909,7 +921,7 @@ void UpdateSim_MidpMeth( double dt, int n, double v0, double ** v, double ** v_m
       // noise amplitude (length of the noise vector)
       double noiseMagn = s * sqrt( dt );
       for(i=0; i<n; ++i){
-	  // generate a unit vector pointing toward a direction distributed evenly in the 4 PI solid angle
+	  // generate a unit vector pointing in a direction distributed evenly in the 4 PI solid angle
 	  double noiseDir_x, noiseDir_y, noiseDir_z;
 	  Generate3dVector_randomDir_unitLength( & noiseDir_x, & noiseDir_y, & noiseDir_z );
 	  // add constant times this unit vector to the sum of the forces acting on the <i>th particle
@@ -931,12 +943,13 @@ void UpdateSim_MidpMeth( double dt, int n, double v0, double ** v, double ** v_m
       (*vx)[i] = (*vx_m)[i] + dt * (*fxSum_m)[i];
       (*vy)[i] = (*vy_m)[i] + dt * (*fySum_m)[i];
       (*vz)[i] = (*vz_m)[i] + dt * (*fzSum_m)[i];
-      // magnitude of the velocity vector at the final point of the simulation update
+      // speed at the final point of the simulation update
       ( *v)[i] = sqrt( SQR( (*vx)[i] ) + SQR( (*vy)[i] ) + SQR( (*vz)[i] ) );
+      double one_over_v = 1.0 / (*v)[i];
       // direction of the velocity at the final point
-      (*ex)[i] = (*vx)[i] / (*v)[i];
-      (*ey)[i] = (*vy)[i] / (*v)[i];
-      (*ez)[i] = (*vz)[i] / (*v)[i];
+      (*ex)[i] = (*vx)[i] * one_over_v;
+      (*ey)[i] = (*vy)[i] * one_over_v;
+      (*ez)[i] = (*vz)[i] * one_over_v;
   }
   
   // 4b, particles leaving the field should be re-inserted using the periodic boundary conditions
@@ -948,7 +961,7 @@ void UpdateSim_MidpMeth( double dt, int n, double v0, double ** v, double ** v_m
   }  
 
   // 4c, compute grid cell indexes at the final point, bn_over_l = bn/l
-  /*double bn_over_l = bn/l;*/ for(i=0; i<n; ++i){ CoordsToGridCellIndexes( (*x)[i], (*y)[i], (*z)[i], bn, bn_over_l, *pfx + i, *pfy + i, *pfz + i ); }
+  /*double bn_over_l = 1.0*bn/l;*/ for(i=0; i<n; ++i){ CoordsToGridCellIndexes( (*x)[i], (*y)[i], (*z)[i], bn, bn_over_l, *pfx + i, *pfy + i, *pfz + i ); }
 
   // 4d, set book-keeping data structures at the final point
   //     default: identical to values at the midpoint
