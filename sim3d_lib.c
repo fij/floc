@@ -84,7 +84,7 @@ double _TAU; // time constant for adjusting the magnitude of the velocity to the
 double _S; // magnitude of noise vector
 double _DT; // time step of a full simulation update
 double * _X, * _Y, * _Z, * _X_M, * _Y_M, * _Z_M; // coordinates of the particle at the current time point and at the midpoint
-double * _VX, * _VY, * _VZ, * _VX_M, * _VY_M, * _VZ_M, * _V, * _V_M; // components of the velocity and the speed at the current time point and the midpoint
+double * _VX, * _VY, * _VZ, * _VX_M, * _VY_M, * _VZ_M, * _V, * _V_M; // velocity components and speed at the current time point and the midpoint
 // EX,EY,EZ are the (x,y,z) coordinates (projections) of the unit vector pointing in the direction of motion (_M suffix: at the midpoint)
 double * _EX, * _EY, * _EZ, * _EX_M, * _EY_M, * _EZ_M; 
 double * _F_X_SUM, * _F_Y_SUM, * _F_Z_SUM, * _F_X_SUM_M, * _F_Y_SUM_M, * _F_Z_SUM_M; // sum of forces acting on a particle now and at the midpoint
