@@ -24,12 +24,14 @@
 int main( int ArgC, char * ArgV[] )
 {
   // initializing
-  Init( ArgC, ArgV, & _RND_SEED, & _N, & _START_STATE, & _V0, & _WARM_UP_TIME, & _TAU, & _S, & _DT, & _L, & _R,
-	& _BL, & _BN, & _PFX, & _PFY, & _PFZ, & _PFX_M, & _PFY_M, & _PFZ_M, 
-	& _BP, & _BP_M, & _PN, & _PN_M, & _BXYZ2I, & _BXYZ2N, & _BXYZ2N_M,
+  Init( ArgC, ArgV, & _RND_SEED, & _N, & _START_STATE, & _V0, & _WARM_UP_TIME, & _TAU, & _S, 
+	& _DT, & _MTL, & _IC, & _ICN, & _IS_FIRST_UPDATE, & _L, & _R, & _BL, & _BN, & _BXYZ2I,
+	& _PFX, & _PFY, & _PFZ, & _PFX_M, & _PFY_M, & _PFZ_M, & _BP, & _BP_M, & _PN, & _PN_M, & _BXYZ2N, & _BXYZ2N_M,
 	& _ST_MAX, & _ST_NOW, & _ST_PREV, & _DRAW_FREQ_ST, & _SAVE_FREQ_N, & _DRAW_SLEEP_WT, & _WT_MAX, & _WT_START, & _WT_NOW,
-        & _X, & _Y, & _Z, & _X_M, & _Y_M, & _Z_M, & _VX, & _VY, & _VZ, & _VX_M, & _VY_M, & _VZ_M, & _V, & _V_M,
-	& _EX, & _EY, & _EZ, & _EX_M, & _EY_M, & _EZ_M, & _F_X_SUM, & _F_Y_SUM, & _F_Z_SUM, & _F_X_SUM_M, & _F_Y_SUM_M, & _F_Z_SUM_M,
+        & _X,    & _Y,    & _Z,    & _VX,       & _VY,       & _VZ,       & _V,
+	& _X_M,  & _Y_M,  & _Z_M,  & _VX_M,     & _VY_M,     & _VZ_M,     & _V_M,
+	& _EX,   & _EY,   & _EZ,   & _FX_SUM,   & _FY_SUM,   & _FZ_SUM, 
+	& _EX_M, & _EY_M, & _EZ_M, & _FX_SUM_M, & _FY_SUM_M, & _FZ_SUM_M,
 	& _X11_DrawMethod, _X11DisplayAreaSize, & _X11WinWidth, _X11InfoFieldWidth, & _X11_PIC_MAGN, & _X11_OBJ_MAGN, _X11Margin,
         & _X11GraphFieldWidth, & _X11GraphFieldUpEnd, _X11InfoFieldHeight, & _X11WinHeight, _X11GraphFieldHeight,
         _NPC, & _ColorCode, & _X11Graph, _X11FontName, & _X11GraphLenNow );
@@ -79,13 +81,19 @@ int main( int ArgC, char * ArgV[] )
 	  WriteOutputData( _N, _X, _Y, _Z, _VX, _VY, _VZ, _V0, _ST_NOW );
       }
       // update the simulation with the midpoint method
-      UpdateSim_MidpMeth( _DT, _N, _V0, & _V, & _V_M, 
-			  &  _X, &  _Y, &  _Z, &  _X_M, &  _Y_M, &  _Z_M, 
-			  & _VX, & _VY, & _VZ, & _VX_M, & _VY_M, & _VZ_M, 
-			  & _EX, & _EY, & _EZ, & _EX_M, & _EY_M, & _EZ_M,
-			  & _F_X_SUM, & _F_Y_SUM, & _F_Z_SUM, & _F_X_SUM_M, & _F_Y_SUM_M, & _F_Z_SUM_M, _TAU, _S, _L, SQR(_R), 
-			  _BL, _BN, & _PFX, & _PFY, & _PFZ, & _PFX_M, & _PFY_M, & _PFZ_M, & _BP, & _BP_M, & _PN, & _PN_M, & _BXYZ2I, & _BXYZ2N, & _BXYZ2N_M,
-			  & _ST_NOW, & _ST_PREV, & _WT_NOW );
+      UpdateSim_MidpMeth(
+			  _DT, _MTL, & _IC, & _ICN, & _IS_FIRST_UPDATE, _N, _V0, _TAU, _S, _L, SQR(_R), & _ST_NOW, & _ST_PREV, & _WT_NOW,
+
+			  & _X,    & _Y,    & _Z,    & _VX,       & _VY,       & _VZ,       & _V, 
+			  & _X_M,  & _Y_M,  & _Z_M,  & _VX_M,     & _VY_M,     & _VZ_M,     & _V_M, 
+			  & _EX,   & _EY,   & _EZ,   & _FX_SUM,   & _FY_SUM,   & _FZ_SUM, 
+			  & _EX_M, & _EY_M, & _EZ_M, & _FX_SUM_M, & _FY_SUM_M, & _FZ_SUM_M, 
+
+			  _BL, _BN, & _BXYZ2I,
+
+			  & _PFX,   & _PFY,   & _PFZ,   & _BP,   & _PN,   & _BXYZ2N, 
+			  & _PFX_M, & _PFY_M, & _PFZ_M, & _BP_M, & _PN_M, & _BXYZ2N_M 
+			);
   }
 
   // write data to stdout at the end of the simulation
