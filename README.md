@@ -2,7 +2,7 @@ floc (flocking): 3d simulation of interacting self-driven particles
 
 midpoint integration of the equations of motion that are continuous in space and time
 
-self-propelling to preferred speed, repulsive radial interactions, noise, time lag, start state ordered/disordered
+start state ordered/disordered, self-propelling to preferred speed, repulsive radial interactions, noise, time lag
 
 compiling: gcc csim3d.c -Wall -lm -O3 -o csim3d
 
