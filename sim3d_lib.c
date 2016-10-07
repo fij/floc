@@ -51,6 +51,31 @@
 // - saving at times            t_i + t_warmUp
 //
 // ===============================================================================================================
+//
+// -------- implementation of time lag --------
+//
+// The sum of forces acting on a particle at time t  are those that were computed at time  t - tau
+// Note that the sum of forces includes all three effects affecting the movement of a particle:
+// - self-propelling
+// - interactions
+// - noise
+//
+// The program sets the time lag (tau) as a multiple of the integration time step (dt):  tau = MTL * dt  (MTL: Multiplier for Time Lag)
+//
+// Because of the time lag, the program stores the values of all variables from the current time point and MTL previous time points
+// The variable IC (Index Circular) is the index of the current time step in the circular arrays storing these data
+//
+// Initialization of the past values of all variables: all (including midpoint values) are set to the current (t=0) values
+//
+// From the simulation time step t=0 to the simulation time step t=MTL the values of the variables are saved at position IC=t
+// At t=MTL+1 the counter jumps to the beginning of the circular array and it becomes IC=0. 
+//
+// In summary:
+// - for the simulation time step t, values of the variables are saved at position IC = t modulo (MTL+1) in the circular data arrays
+// - data saved tau simulation time ago are at the index IC_tau = (t-tau) modulo (MTL+1) = ( IC - MTL ) modulo (MTL+1)
+// - the next position where data will be saved is IC_next = ( IC + 1 ) modulo (MTL+1) = IC_tau
+//
+// ===============================================================================================================
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -83,11 +108,15 @@ double _V0; // preferred magnitude of the velocity of every particle
 double _TAU; // time constant for adjusting the magnitude of the velocity to the preferred magnitude
 double _S; // magnitude of noise vector
 double _DT; // time step of a full simulation update
-double * _X, * _Y, * _Z, * _X_M, * _Y_M, * _Z_M; // coordinates of the particle at the current time point and at the midpoint
+int _MTL; // Multiplier for Time Lag = length of time lag (tau) / length of simulation update step (dt)
+int _IC; // Index of Current data in the arrays saving current and past data (see explanation above at "implementation of time lag"
+int _ICN; // Index Circular Next: the index of the next time step, which is the same as the index of the time step tau time ago
+// ---- all variables are saved for the current time step and MTL past time steps ----
+double *  _X, *  _Y, *  _Z, *  _X_M, *  _Y_M, *  _Z_M; // coordinates of the particle at the current time point and at the midpoint
 double * _VX, * _VY, * _VZ, * _VX_M, * _VY_M, * _VZ_M, * _V, * _V_M; // velocity components and speed at the current time point and the midpoint
 // EX,EY,EZ are the (x,y,z) coordinates (projections) of the unit vector pointing in the direction of motion (_M suffix: at the midpoint)
 double * _EX, * _EY, * _EZ, * _EX_M, * _EY_M, * _EZ_M; 
-double * _F_X_SUM, * _F_Y_SUM, * _F_Z_SUM, * _F_X_SUM_M, * _F_Y_SUM_M, * _F_Z_SUM_M; // sum of forces acting on a particle now and at the midpoint
+double ** _FX_SUM, ** _FY_SUM, ** _FZ_SUM, ** _FX_SUM_M, ** _FY_SUM_M, ** _FZ_SUM_M; // components of the sum of forces acting on a particle now and at the midpoint
 
 // ---- X11 display ----
 // dimensions (in pixels) when visualizing with the X server (X11): info field width and height, X11 margin
@@ -113,6 +142,7 @@ int _DRAW_SLEEP_WT; // number of seconds to sleep after drawing (WT: Wall clock 
 double _ST_NOW, _ST_PREV; // current and previous simulation time
 double _ST_MAX; // maximum simulation time for which the the program should be run
 double _WARM_UP_TIME; // IF the simulation is started from the ordered state, THEN saving starts from this time value (see above at "output")
+int _IS_FIRST_UPDATE; // 1: we are at the first update step, 0: we are not
 
 // ----- geometry and book-keeping -----
 double _L; // the simulated field is a cube with side length L
@@ -121,12 +151,13 @@ double _R; // interaction radius: two particles interact only if their distance 
 double _BL; // size of one grid cell, the letter "B" indicates book-keeping, this is the smallest real-valued number that is 
             // (i) greater or equal than R and (ii) multiplied by an integer gives the size of the simulated field, L
 int _BN; // the simulated field is divided into  BN x BN  book-keeping fields, "B" as book-keeping
+int *** _BXYZ2I; // BXYZ2I[ix][iy][iz] maps the three coordinates of a grid cell to a single grid cell index
+// ---- all variables are saved for the current time step and MTL past time steps ----
 int * _PFX, * _PFY, * _PFZ, * _PFX_M, * _PFY_M, * _PFZ_M; // the indexes of the book-keeping field of the i. particle now and at the midpoint
 int *** _BP, *** _BP_M; // BP[ix][iy][iz] is the index of the 1st particle in the chain of particles in the current (ix,iy,iz) field of the board
                         // the CHAIN_END value tells: there are no particles in (ix,iy,iz), _M suffix: same thing at the midpoint of the simulation update
 int * _PN, * _PN_M; // PN[i] (Particle Next): is the index of the particle following the <i>th particle in the chain of particles in the same field
                     // the CHAIN_END value tells: no more particles in this field, _M: at the midpoint of the simulation update
-int *** _BXYZ2I; // BXYZ2I[ix][iy][iz] maps the three coordinates of a grid cell to a single grid cell index
 int *** _BXYZ2N, *** _BXYZ2N_M; // BXYZ2N[ix][iy][iz]: number of particles in the grid cell (ix,iy,iz) now and at the midpoint of the simulation update
 
 // === function definitions ===
@@ -227,21 +258,83 @@ void Generate3dVector_randomDir_unitLength( double * coord_x, double * coord_y, 
 
 // ---------------------------------------
 
-void Init( int argc, char * argv[], int * rndSeed, int * n, int * startState, double * v0, double * warmUpTime, double * tau, double * s, double * dt,
-	   double * l, double * r, double * bl, int * bn, int ** pfx, int ** pfy, int ** pfz, int ** pfx_m, int ** pfy_m, int ** pfz_m,
-	   int **** bp, int **** bp_m, int ** pn, int ** pn_m, int **** bxyz2i, int **** bxyz2n, int **** bxyz2n_m,
-	   double * stMax, double * stNow, double * stPrev, double * drawFreqST, int * saveFreqN, int * drawSleepWT, uli * wtMax, uli * wtStart, uli *wtNow,
-	   double **  x, double **  y, double **  z, double **  x_m, double **  y_m, double **  z_m, 
-	   double ** vx, double ** vy, double ** vz, double ** vx_m, double ** vy_m, double ** vz_m, double ** v, double ** v_m,
-	   double ** ex, double ** ex_m, double ** ey, double ** ey_m, double ** ez, double ** ez_m,
-	   double ** fxSum, double ** fySum, double ** fzSum, double ** fxSum_m, double ** fySum_m, double ** fzSum_m,
+// allocate memory to a 2-dimensional tensor of integers (a matrix) with sizes nA and nB
+void Alloc_int2tensor( int *** t, int nA, int nB )
+{
+  * t = (int**)calloc( nA, sizeof(int*) );
+  int iA; for( iA=0; iA<nA; ++iA ){
+      ( * t )[iA] = (int*)calloc( nB, sizeof(int) );
+  }
+}
+
+// ---------------------------------------
+
+// allocate memory to a 2-dimensional tensor of doubles (a matrix) with sizes nA and nB
+void Alloc_d2tensor( double *** t, int nA, int nB )
+{
+  * t = (double**)calloc( nA, sizeof(double*) );
+  int iA; for( iA=0; iA<nA; ++iA ){
+      ( * t )[iA] = (double*)calloc( nB, sizeof(double) );
+  }
+}
+
+// ---------------------------------------
+
+// allocate memory to a 2-dimensional tensor of integers (a matrix) with sizes nA and nB
+// fill up the tensor with the value 'val'
+void AllocInit_int2tensor( int *** t, int nA, int nB, int val )
+{
+  * t = (int**)calloc( nA, sizeof(int*) );
+  int iA; for( iA=0; iA<nA; ++iA ){
+      ( * t )[iA] = (int*)calloc( nB, sizeof(int) );
+      int iB; for( iB=0; iB<nB; ++iB ){
+	  ( * t )[iA][iB] = val;
+      }
+  }
+}
+
+// ---------------------------------------
+
+// allocate memory to a 3-dimensional tensor of integers with sizes nA, nB and nC
+// fill up the tensor with the value 'val'
+void AllocInit_int3tensor( int **** t, int nA, int nB, int nC, int val )
+{
+  * t = (int***)calloc( nA, sizeof(int**) );
+  int iA; for( iA=0; iA<nA; ++iA ){
+      ( * t )[iA] = (int**)calloc( nB, sizeof(int*) );
+      int iB; for( iB=0; iB<nB; ++iB ){
+	  ( * t )[iA][iB] = (int*)calloc( nC, sizeof(int) );
+	  int iC; for( iC=0; iC<nC; ++iC ){
+	      ( * t )[iA][iB][iC] = val;
+	  }
+      }
+  }
+}
+
+// ---------------------------------------
+
+int nextNumberWithModulo( int number, int modulo_base ){ return ( number + 1 ) % modulo_base; }
+
+// ---------------------------------------
+
+void Init( int argc, char * argv[], int * rndSeed, int * n, int * startState, double * v0,
+	   double * warmUpTime, double * tau, double * s, double * dt, int * mtl, int * ic, int * icn, int * is_first_update,
+	   double * l, double * r, double * bl, int * bn, int **** bxyz2i, 
+	   int ** pfx, int ** pfy, int ** pfz, int ** pfx_m, int ** pfy_m, int ** pfz_m,
+	   int **** bp, int **** bp_m, int ** pn, int ** pn_m, int **** bxyz2n, int **** bxyz2n_m,
+	   double * stMax, double * stNow, double * stPrev, double * drawFreqST, int * saveFreqN, int * drawSleepWT,
+	   uli * wtMax, uli * wtStart, uli *wtNow,
+	   double ** x,    double ** y,    double ** z,    double  ** vx,      double  ** vy,      double  ** vz,      double ** v,
+	   double ** x_m,  double ** y_m,  double ** z_m,  double  ** vx_m,    double  ** vy_m,    double  ** vz_m,    double ** v_m,
+	   double ** ex,   double ** ey,   double ** ez,   double *** fxSum,   double *** fySum,   double *** fzSum, 
+	   double ** ex_m, double ** ey_m, double ** ez_m, double *** fxSum_m, double *** fySum_m, double *** fzSum_m,
 	   int * x11drawMethod, int x11displayAreaSize, int * x11winWidth, int x11infoFieldWidth, double * x11picMagn, double * x11objMagn, int x11margin,
 	   int * x11graphFieldWidth, int * x11graphFieldUpEnd, int x11infoFieldHeight, int * x11winHeight, int x11graphFieldHeight,
 	   int npc, int ** colorCode, double ** x11graph, char * x11fontName, int * x11graphLenNow )
 {
   // ------------- initialize parameters -----------------
   // IF the number of arguments is incorrect, THEN write to stderr how to use the program
-  if( 17 != argc ){
+  if( 18 != argc ){
 
     fprintf(stderr,"\n\tUsage: %s \\\n",argv[0]);
     fprintf(stderr,  "\t       \\\n");
@@ -257,6 +350,7 @@ void Init( int argc, char * argv[], int * rndSeed, int * n, int * startState, do
     fprintf(stderr,  "\t       <tau: time constant for adjusting the length of the velocity vector to the preferred value, v0> \\\n");
     fprintf(stderr,  "\t       <noise amplitude (set to zero before \'warmUpTime\' (see sim3d.c)> \\\n");
     fprintf(stderr,  "\t       <time step of one full simulation update (with the midpoint method)> \\\n");
+    fprintf(stderr,  "\t       <an _integer_ Multiplier for the Time Lag (mtl) = length of time lag (tau) / length of simulation update step (dt)> \\\n");
     fprintf(stderr,  "\t       \\\n");
 
     fprintf(stderr,  "\t       <drawing method of particles in the X11 window (0: arrow, 1: disc)> \\\n");
@@ -283,14 +377,15 @@ void Init( int argc, char * argv[], int * rndSeed, int * n, int * startState, do
   * tau    = atof(argv[++iArg]);
   * s      = atof(argv[++iArg]);
   * dt     = atof(argv[++iArg]);
+  * mtl    = atoi(argv[++iArg]);
   //
   * x11drawMethod = atof(argv[++iArg]);
-  * x11objMagn  = atof(argv[++iArg]);
-  * stMax       = atof(argv[++iArg]);
-  * drawFreqST  = atof(argv[++iArg]);
-  * saveFreqN   = atoi(argv[++iArg]);
-  * drawSleepWT = atoi(argv[++iArg]);
-  * wtMax       = (uli)atoi(argv[++iArg]);
+  * x11objMagn    = atof(argv[++iArg]);
+  * stMax         = atof(argv[++iArg]);
+  * drawFreqST    = atof(argv[++iArg]);
+  * saveFreqN     = atoi(argv[++iArg]);
+  * drawSleepWT   = atoi(argv[++iArg]);
+  * wtMax    = (uli)atoi(argv[++iArg]);
   //
   // print start message, set start and current wall clock time (wt), set random seed, set simulation time and previous simulation time
   fprintf(stderr,"Initializing ... "); fflush(stderr); * wtStart = (uli)time(NULL); * wtNow = * wtStart; srand( * rndSeed ); * stNow = 0.0; * stPrev = 0.0;
@@ -299,64 +394,61 @@ void Init( int argc, char * argv[], int * rndSeed, int * n, int * startState, do
   // ------------ initialize the coordinate-based book-keeping data structures of the particles -----------------
   // set size of the cells of the book-keeping grid and the size (both height and width) of one grid cell
   * bn = (int)floor( * l / * r ); * bl = * l / * bn;
-  // allocate memory to the book-keeping arrays
-  * bp       = (int***)calloc( * bn, sizeof(int**) ); 
-  * bp_m     = (int***)calloc( * bn, sizeof(int**) ); 
-  * bxyz2i   = (int***)calloc( * bn, sizeof(int**) ); 
-  * bxyz2n   = (int***)calloc( * bn, sizeof(int**) ); 
-  * bxyz2n_m = (int***)calloc( * bn, sizeof(int**) ); 
-  int ix; for(ix=0;ix<*bn;++ix){ 
-      ( * bp       )[ix] = (int**)calloc( * bn, sizeof(int*) );
-      ( * bp_m     )[ix] = (int**)calloc( * bn, sizeof(int*) );
-      ( * bxyz2i   )[ix] = (int**)calloc( * bn, sizeof(int*) );
-      ( * bxyz2n   )[ix] = (int**)calloc( * bn, sizeof(int*) );
-      ( * bxyz2n_m )[ix] = (int**)calloc( * bn, sizeof(int*) );
+  // allocate memory to the changing book-keeping arrays and fill them up with the values provided in the last argument
+  AllocInit_int3tensor( bp,   *bn, *bn, *bn, CHAIN_END ); AllocInit_int3tensor( bxyz2n,   *bn, *bn, *bn, 0 );
+  AllocInit_int3tensor( bp_m, *bn, *bn, *bn, CHAIN_END ); AllocInit_int3tensor( bxyz2n_m, *bn, *bn, *bn, 0 );
+  // allocate memory to the constant table converting between the two types of grid cell indexing
+  int ix; for(ix=0;ix<*bn;++ix){
+      * bxyz2i = (int***)calloc( * bn, sizeof(int**) ); 
       int iy; for(iy=0;iy<*bn;++iy){
-	  ( * bp       )[ix][iy] = (int*)calloc( * bn, sizeof(int) );
-	  ( * bp_m     )[ix][iy] = (int*)calloc( * bn, sizeof(int) );
-	  ( * bxyz2i   )[ix][iy] = (int*)calloc( * bn, sizeof(int) );
-	  ( * bxyz2n   )[ix][iy] = (int*)calloc( * bn, sizeof(int) );
-	  ( * bxyz2n_m )[ix][iy] = (int*)calloc( * bn, sizeof(int) );
+	  ( * bxyz2i )[ix] = (int**)calloc( * bn, sizeof(int*) );
 	  int iz; for(iz=0;iz<*bn;++iz){
-	      // initialize the book-keeping, default: all book-keeping fields are empty
-	      ( * bxyz2n   )[ix][iy][iz] = 0;
-	      ( * bxyz2n_m )[ix][iy][iz] = 0;
-	      ( * bp       )[ix][iy][iz] = CHAIN_END;
-	      ( * bp_m     )[ix][iy][iz] = CHAIN_END;
+	      ( * bxyz2i )[ix][iy] = (int*)calloc( * bn, sizeof(int) );
 	      // mapping the three coordinates of a grid cell to a single grid cell index
-	      ( * bxyz2i   )[ix][iy][iz] = ( ( ix * (*bn) ) + iy ) * (*bn) + iz;
+	      ( * bxyz2i )[ix][iy][iz] = ( ( ix * (*bn) ) + iy ) * (*bn) + iz;
 	  }
       }
   }
+
+
   // allocate memory to the book-keeping showing for each particle the next particle in its book-keeping grid cell, _m: at the midpoint of the sim.update
-  ( * pn   ) = (int*)calloc( * n, sizeof(int) ); 
-  ( * pn_m ) = (int*)calloc( * n, sizeof(int) ); 
-  // initialize this book-keeping, default: all particles are chain end particles of their book-keeping chains
-  int i; for(i=0; i<*n; ++i){ ( * pn )[i] = CHAIN_END; ( * pn_m )[i] = CHAIN_END; }
+  *pn = (int*)calloc(*n,sizeof(int)); *pn_m = (int*)calloc(*n,sizeof(int));
+  // the initial values: all particles are chain end particles of their book-keeping chains
+  int i; for(i=0; i<*n; ++i){ (*pn)[i] = CHAIN_END; (*pn_m)[i] = CHAIN_END; }
   // allocate memory to the arrays storing the book-keeping grid cell index by particle index
-  ( * pfx   ) = (int*)calloc( * n, sizeof(int) ); 
-  ( * pfy   ) = (int*)calloc( * n, sizeof(int) ); 
-  ( * pfz   ) = (int*)calloc( * n, sizeof(int) ); 
-  ( * pfx_m ) = (int*)calloc( * n, sizeof(int) ); 
-  ( * pfy_m ) = (int*)calloc( * n, sizeof(int) ); 
-  ( * pfz_m ) = (int*)calloc( * n, sizeof(int) ); 
-  // the pfx,pfy,pfz book-keepings will be initialized when the particles are placed
+  // these book-keepings (pfx,pfy,pfz) will be initialized when the particles are placed
+  *pfx   = (int*)calloc(*n,sizeof(int)); *pfy   = (int*)calloc(*n,sizeof(int)); *pfz   = (int*)calloc(*n,sizeof(int));
+  *pfx_m = (int*)calloc(*n,sizeof(int)); *pfy_m = (int*)calloc(*n,sizeof(int)); *pfz_m = (int*)calloc(*n,sizeof(int)); 
 
 
   // ----------- coordinates, velocities ---------------
-  // allocate memory to particle coordinates, components of the velocity, direction of motion, components of the sum of forces
-  * x          = (double*)calloc(*n,sizeof(double)); * y          = (double*)calloc(*n,sizeof(double)); * z          = (double*)calloc(*n,sizeof(double));
-  * x_m        = (double*)calloc(*n,sizeof(double)); * y_m        = (double*)calloc(*n,sizeof(double)); * z_m        = (double*)calloc(*n,sizeof(double));
-  * vx         = (double*)calloc(*n,sizeof(double)); * vy         = (double*)calloc(*n,sizeof(double)); * vz         = (double*)calloc(*n,sizeof(double));
-  * vx_m       = (double*)calloc(*n,sizeof(double)); * vy_m       = (double*)calloc(*n,sizeof(double)); * vz_m       = (double*)calloc(*n,sizeof(double));
-  * v          = (double*)calloc(*n,sizeof(double)); * v_m        = (double*)calloc(*n,sizeof(double));
-  * ex         = (double*)calloc(*n,sizeof(double)); * ey         = (double*)calloc(*n,sizeof(double)); * ez         = (double*)calloc(*n,sizeof(double));
-  * ex_m       = (double*)calloc(*n,sizeof(double)); * ey_m       = (double*)calloc(*n,sizeof(double)); * ez_m       = (double*)calloc(*n,sizeof(double));
-  * fxSum      = (double*)calloc(*n,sizeof(double)); * fySum      = (double*)calloc(*n,sizeof(double)); * fzSum      = (double*)calloc(*n,sizeof(double));
-  * fxSum_m    = (double*)calloc(*n,sizeof(double)); * fySum_m    = (double*)calloc(*n,sizeof(double)); * fzSum_m    = (double*)calloc(*n,sizeof(double));
+  // allocate memory to particle coordinates, components of the velocity, direction of motion
+  *x    = (double*)calloc(*n,sizeof(double)); *y    = (double*)calloc(*n,sizeof(double)); *z    = (double*)calloc(*n,sizeof(double)); 
+  *x_m  = (double*)calloc(*n,sizeof(double)); *y_m  = (double*)calloc(*n,sizeof(double)); *z_m  = (double*)calloc(*n,sizeof(double)); 
+  *vx   = (double*)calloc(*n,sizeof(double)); *vy   = (double*)calloc(*n,sizeof(double)); *vz   = (double*)calloc(*n,sizeof(double));
+  *vx_m = (double*)calloc(*n,sizeof(double)); *vy_m = (double*)calloc(*n,sizeof(double)); *vz_m = (double*)calloc(*n,sizeof(double)); 
+  *ex   = (double*)calloc(*n,sizeof(double)); *ey   = (double*)calloc(*n,sizeof(double)); *ez   = (double*)calloc(*n,sizeof(double));
+  *ex_m = (double*)calloc(*n,sizeof(double)); *ey_m = (double*)calloc(*n,sizeof(double)); *ez_m = (double*)calloc(*n,sizeof(double)); 
+  *v    = (double*)calloc(*n,sizeof(double));
+  *v_m  = (double*)calloc(*n,sizeof(double));
 
 
-  // sequentially place the particles at random positions: the distance between any two particles has to be above the minimum value checked below at (**)
+  // -------- allocate memory to the current and past values of force component sums --------
+  Alloc_d2tensor( fxSum,   1 + *mtl, *n ); Alloc_d2tensor( fySum,   1 + *mtl, *n ); Alloc_d2tensor( fzSum,   1 + *mtl, *n );
+  Alloc_d2tensor( fxSum_m, 1 + *mtl, *n ); Alloc_d2tensor( fySum_m, 1 + *mtl, *n ); Alloc_d2tensor( fzSum_m, 1 + *mtl, *n );
+
+
+  // -------- indexes for handling the time lag --------
+  // Index of Current data in the arrays saving current and past data (see explanation above at "implementation of time lag"
+  * ic = 0;
+  // Index Circular Next, index of the next time step in the circular arrays,
+  //                      which is the same as the index of the time step that was tau time ago
+  * icn = nextNumberWithModulo( * ic, * mtl + 1 );
+  // set that we are before the first completed simulation update
+  * is_first_update = 1;
+
+
+  // sequentially place the particles at random positions: the distance between any two particles has to be above the minimum value tested below at the (TT) sign
   /*int i;*/ for( i=0; i < *n; ++i ){
       // (1) find a random point not too close to other already placed points
       int coords_ok; do{ coords_ok = 1;
@@ -381,22 +473,24 @@ void Init( int argc, char * argv[], int * rndSeed, int * n, int * startState, do
 	      // xo: due to the periodic boundaries in the book-keeping the relative position of the neighboring cell 
 	      //     is ( dx + xo * BN , dy + yo * BN ) from the current cell  ( xo can be = -1, 0, +1 )
 	      // yo,zo: similar to xo
-	      int jx = ( * pfx )[i] + dx; int xo = 0; if( jx < 0 ){ jx += * bn; --xo; }else if( jx > * bn - 1 ){ jx -= * bn; ++xo; }
-	      int jy = ( * pfy )[i] + dy; int yo = 0; if( jy < 0 ){ jy += * bn; --yo; }else if( jy > * bn - 1 ){ jy -= * bn; ++yo; }
-	      int jz = ( * pfz )[i] + dz; int zo = 0; if( jz < 0 ){ jz += * bn; --zo; }else if( jz > * bn - 1 ){ jz -= * bn; ++zo; }
+	      int jx = (*pfx)[i] + dx; int xo = 0; if( jx < 0 ){ jx += * bn; --xo; }else if( jx > * bn - 1 ){ jx -= * bn; ++xo; }
+	      int jy = (*pfy)[i] + dy; int yo = 0; if( jy < 0 ){ jy += * bn; --yo; }else if( jy > * bn - 1 ){ jy -= * bn; ++yo; }
+	      int jz = (*pfz)[i] + dz; int zo = 0; if( jz < 0 ){ jz += * bn; --zo; }else if( jz > * bn - 1 ){ jz -= * bn; ++zo; }
 	      //
 	      // . loop through the list of particles already placed into the (jx,jy,jz) book-keeping grid cell
 	      //   in the (jx,jy,jz) grid cell the index of the first already placed particle is "j"
 	      // . NOTE: if we see the CHAIN_END marker right at the start, THEN there are no particles in the (jx,jy,jz) grid cell
 	      int j = (*bp)[jx][jy][jz]; while( CHAIN_END != j ){
 		  // IF the square of the distance between the i. and j. particles is below the minimum saved so far, THEN set the minimum to this new value
-		  minDistSqr = MIN( minDistSqr, 
-				    SQR( (*x)[j] + xo * *l - (*x)[i] ) + SQR( (*y)[j] + yo * *l - (*y)[i] ) + SQR( (*z)[j] + zo * *l - (*z)[i] ) );
+		  minDistSqr = MIN( minDistSqr,   SQR( (*x)[j] + xo * *l - (*x)[i] ) 
+				                + SQR( (*y)[j] + yo * *l - (*y)[i] )
+				                + SQR( (*z)[j] + zo * *l - (*z)[i] )
+				  );
 		  // step to next particle or the "CHAIN_END" marker of the current book-keeping field 
-		  j = ( * pn )[j];
+		  j = (*pn)[j];
 	      }
 	  }}}
-	  // (**) IF the minimum distance is below  0.6 * L * N ^ { -1/3 },
+	  // (TT) IF the minimum distance is below  0.6 * L * N ^ { -1/3 },
 	  //      THEN it is too low and the currently found coordinates are not OK
 	  if( sqrt( minDistSqr ) < 0.6 * (*l) * pow((*n),(-1.0)/3.0) ){ coords_ok = 0; }
 	  // IF the currently selected coordinates are not OK, THEN reject these coordinates and try to find new coordinates
@@ -415,22 +509,22 @@ void Init( int argc, char * argv[], int * rndSeed, int * n, int * startState, do
   case 0:
       // for each particle: set _different_ random direction for the velocity
       // generate a 3d unit (i.e., length=1) vector pointing in a direction distributed evenly in the 4 PI solid angle
-      for( i=0; i < *n; ++i ){ Generate3dVector_randomDir_unitLength( * ex + i, * ey + i, * ez + i ); }
+      for( i=0; i < *n; ++i ){ Generate3dVector_randomDir_unitLength( *ex + i, *ey + i, *ez + i ); }
       break;
   // all other cases of startState:
   default:
       // generate a 3d unit (i.e., length=1) vector pointing in a direction distributed evenly in the 4 PI solid angle
       // save this unit vector as the direction of motion of the first particle (i.e., the particle with the index zero)
-      Generate3dVector_randomDir_unitLength( * ex + 0, * ey + 0, * ez + 0 );
-      // for each particle: set _same_ random direction for the velocity
-      i=0; while(++i < *n){ (*ex)[i] = (*ex)[0]; (*ey)[i] = (*ey)[0]; (*ez)[i] = (*ez)[0]; }
+      Generate3dVector_randomDir_unitLength( *ex + 0, *ey + 0, *ez + 0 );
+      // for each particle from 1 to n-1: set _same_ random direction for the velocity: copy from the first particle, i.e., the particle with index 0
+      /*int i;*/ for(i=1; i<*n; ++i){ (*ex)[i] = (*ex)[0]; (*ey)[i] = (*ey)[0]; (*ez)[i] = (*ez)[0]; }
       break;
   }
   // for each particle: set speed and velocity vector
   for( i=0; i < *n; ++i ){
       // set the particle's speed to the preferred speed
-      (*v)[i] = *v0;
-      // set the velocity vector using the magnitude of the velocity vector (i.e., the speed) and the direction of the velocity vector
+      ( *v)[i] = *v0;
+      // set the velocity vector using the vector's magnitude (i.e., the speed) and the direction of the velocity vector
       (*vx)[i] = (*v)[i] * (*ex)[i];
       (*vy)[i] = (*v)[i] * (*ey)[i];
       (*vz)[i] = (*v)[i] * (*ez)[i];
@@ -774,22 +868,34 @@ void AddInteractionsToForces( int bn, int **** bxyz2n, int **** bxyz2i, int ****
 
 // ------------------------------------------------------------------
 
-void UpdateSim_MidpMeth( double dt, int n, double v0, double ** v, double ** v_m,
-			 double **  x, double **  y, double **  z, double **  x_m, double **  y_m, double **  z_m, 
-			 double ** vx, double ** vy, double ** vz, double ** vx_m, double ** vy_m, double ** vz_m,
-			 double ** ex, double ** ey, double ** ez, double ** ex_m, double ** ey_m, double ** ez_m,
-			 double ** fxSum, double ** fySum, double ** fzSum, double ** fxSum_m, double ** fySum_m, double ** fzSum_m,
-			 double tau, double s, double l, double cutoff_rSqr, 
-			 double bl, int bn, int ** pfx, int ** pfy, int ** pfz, int ** pfx_m, int ** pfy_m, int ** pfz_m,
-			 int **** bp, int **** bp_m, int ** pn, int ** pn_m, int **** bxyz2i, int **** bxyz2n, int **** bxyz2n_m,
-			 double * stNow, double * stPrev, uli * wtNow )
+void UpdateSim_MidpMeth(
+			 double dt, int mtl, int * ic, int * icn, int * is_first_update, int n, double v0, double tau, double s, 
+			 double l, double cutoff_rSqr, double * stNow, double * stPrev, uli * wtNow,
+
+			 double ** x,    double ** y,    double ** z,    double ** vx,      double ** vy,      double ** vz,      double ** v,
+			 double ** x_m,  double ** y_m,  double ** z_m,  double ** vx_m,    double ** vy_m,    double ** vz_m,    double ** v_m,
+			 double ** ex,   double ** ey,   double ** ez,   double *** fxSum,   double *** fySum,   double *** fzSum, 
+			 double ** ex_m, double ** ey_m, double ** ez_m, double *** fxSum_m, double *** fySum_m, double *** fzSum_m,
+
+			 double bl, int bn, int **** bxyz2i,
+
+			 int ** pfx,   int ** pfy,   int ** pfz,   int **** bp,   int ** pn,   int **** bxyz2n, 
+			 int ** pfx_m, int ** pfy_m, int ** pfz_m, int **** bp_m, int ** pn_m, int **** bxyz2n_m 
+		      )
 {
   // ---------------------------------------
+  // NOTE:
+  // - Forces for the current time are computed in (1) and (3) below,
+  //   but the forces from tau time ago are applied for updating velocities in (2) and (4)
+  // - If we are at the first simulation update, then the forces computed in (1) are copied into all past values,
+  //   similarly the midpoint force values computed in (3) are copied into all past midpoint values
+  //
   // 1, compute the self-propelling and interaction forces acting on each particle
   //    1.a, set all force sums to zero
   //    1.b, self-propelling forces: loop through the list of particles
   //    1.c, particle-particle interactions: loop through the list of non-empty book-keeping grid cells
-  //         - a particle interacts with all other particles in the 27 nearby book-keeping grid cells (the grid cell itself and the 26 neighboring grid cells)
+  //         - a particle interacts with all other particles in the 27 nearby book-keeping grid cells
+  //           (the grid cell itself and the 26 neighboring grid cells)
   //         - for each interacting particle-particle pair: increment the force components of both interacting particles
   //         - for each book-keeping grid cell:
   //           . consider interactions inside the grid cell itself only if it contains at least 2 particles
@@ -798,6 +904,7 @@ void UpdateSim_MidpMeth( double dt, int n, double v0, double ** v, double ** v_m
   //             consider the neighboring grid cell only if its grid cell index is above the current grid cell's index
   //    1.d, add noise for a time interval of dt/2
   //         - noise amplitude is S * sqrt(dt/2)
+  //    1.e, IF we are at the first simulation update, THEN copy the computed forces to all past values
   //
   // 2, based on the current coordinates and velocities
   //    2a, compute the coordinates and velocities at the midpoint: dt/2 time after the current simulation time, t
@@ -810,14 +917,17 @@ void UpdateSim_MidpMeth( double dt, int n, double v0, double ** v, double ** v_m
   //    3b, self-propelling
   //    3c, interactions
   //    3d, noise, magnitude is S * sqrt(dt)
+  //    3e, IF we are at the first simulation update, THEN copy the computed midpoint forces values to all past midpoint values
   //
   // 4, change the initial coordinate and velocity vectors using the velocities and forces at the midpoint
   //
-  // 5, update simulation time
+  // 5, update simulation time, update current index and next index in the circular arrays, set is_first_update to 0
   // ---------------------------------------
 
+  // -------- Compute the forces acting on each particle at the current time step --------
+
   // 1a, for each particle: initialize the components of the sum of forces acting on the particle
-  int i; for(i=0; i<n; ++i){ (*fxSum)[i] = 0.0; (*fySum)[i] = 0.0; (*fzSum)[i] = 0.0; };
+  int i; for(i=0; i<n; ++i){ (*fxSum)[*ic][i] = 0.0; (*fySum)[*ic][i] = 0.0; (*fzSum)[*ic][i] = 0.0; };
 
   // 1b, self-propelling force with a magnitude of  q = (v_0-v)/tau
   // IF the magnitude of the particle's current velocity is not v0, THEN it has a non-zero self-propelling force
@@ -826,31 +936,41 @@ void UpdateSim_MidpMeth( double dt, int n, double v0, double ** v, double ** v_m
       // compute the magnitude of the self-propelling force
       double q = ( v0 - (*v)[i] ) * one_over_tau;
       // add components of the self-propelling force to the components of the sum of forces acting on the <i>th particle
-      (*fxSum)[i] += q * (*ex)[i];
-      (*fySum)[i] += q * (*ey)[i];
-      (*fzSum)[i] += q * (*ez)[i]; 
+      (*fxSum)[*ic][i] += q * (*ex)[i];
+      (*fySum)[*ic][i] += q * (*ey)[i];
+      (*fzSum)[*ic][i] += q * (*ez)[i];
   }
     
   // 1c, add interactions to the forces
-  AddInteractionsToForces( bn, bxyz2n, bxyz2i, bp, pn, x, y, z, cutoff_rSqr, fxSum, fySum, fzSum, l );
+  AddInteractionsToForces( bn, bxyz2n, bxyz2i, bp, pn, x, y, z, cutoff_rSqr, (*fxSum)+*ic, (*fySum)+*ic, (*fzSum)+*ic, l );
 
   // 1d, IF the noise amplitude is non-zero, THEN add noise to the forces
   //     NOTE:  amplitude of noise is   sqrt ( dt / 2 )
   if( s > 0.0 ){ 
-      // noise amplitude (length of the noise vector)
+      // noise amplitude/magnitude (length of the noise vector)
       double noiseMagn = s * sqrt( .5 * dt );
       for(i=0; i<n; ++i){
 	  // generate a unit vector pointing in a direction distributed evenly in the 4 PI solid angle
 	  double noiseDir_x, noiseDir_y, noiseDir_z;
 	  Generate3dVector_randomDir_unitLength( & noiseDir_x, & noiseDir_y, & noiseDir_z );
-	  // add constant times this unit vector to the sum of the forces acting on the <i>th particle
-	  (*fxSum)[i] += noiseMagn * noiseDir_x;
-	  (*fySum)[i] += noiseMagn * noiseDir_y;
-	  (*fzSum)[i] += noiseMagn * noiseDir_z;
+	  // add this unit vector multiplied by 'noiseMagn' to the sum of the forces acting on the <i>th particle
+	  (*fxSum)[*ic][i] += noiseMagn * noiseDir_x;
+	  (*fySum)[*ic][i] += noiseMagn * noiseDir_y;
+	  (*fzSum)[*ic][i] += noiseMagn * noiseDir_z;
       }
   }
 
-  // ----------------------------------------
+  // 1e, IF we are at the first simulation update, THEN copy current values into all past values
+  if( * is_first_update ){
+      int it; for(it=1; it<=mtl; ++it){ // at the first update ic = 0, so the range of all other values is it=1..mtl
+	  (*fxSum)[it][i] = (*fxSum)[*ic][i]; 
+	  (*fySum)[it][i] = (*fySum)[*ic][i]; 
+	  (*fzSum)[it][i] = (*fzSum)[*ic][i]; 
+      }
+  }
+
+
+  // -------- Use the forces from tau time ago to update the velocity components and coordinates of all particles --------
 
   // 2a, compute positions, velocities and directions at the midpoint
   for(i=0; i<n; ++i){
@@ -858,10 +978,10 @@ void UpdateSim_MidpMeth( double dt, int n, double v0, double ** v, double ** v_m
       (* x_m)[i] = (* x)[i] + .5 * dt * (*vx   )[i];
       (* y_m)[i] = (* y)[i] + .5 * dt * (*vy   )[i];
       (* z_m)[i] = (* z)[i] + .5 * dt * (*vz   )[i];
-      // velocity vector at the midpoint
-      (*vx_m)[i] = (*vx)[i] + .5 * dt * (*fxSum)[i];
-      (*vy_m)[i] = (*vy)[i] + .5 * dt * (*fySum)[i];
-      (*vz_m)[i] = (*vz)[i] + .5 * dt * (*fzSum)[i];
+      // compute velocity vector at the midpoint based on the sum of forces from the past
+      (*vx_m)[i] = (*vx)[i] + .5 * dt * (*fxSum)[*icn][i];
+      (*vy_m)[i] = (*vy)[i] + .5 * dt * (*fySum)[*icn][i];
+      (*vz_m)[i] = (*vz)[i] + .5 * dt * (*fzSum)[*icn][i];
       // speed at the midpoint
       (*v_m)[i] = sqrt( SQR( (*vx_m)[i] ) + SQR( (*vy_m)[i] ) + SQR( (*vz_m)[i] ) );
       double one_over_v_m = 1.0 / (*v_m)[i];
@@ -870,7 +990,7 @@ void UpdateSim_MidpMeth( double dt, int n, double v0, double ** v, double ** v_m
       (*ey_m)[i] = (*vy_m)[i] * one_over_v_m;
       (*ez_m)[i] = (*vz_m)[i] * one_over_v_m;
   }
-  // 2b, particles leaving the field should be re-inserted using the periodic boundary conditions
+  // 2b, particles leaving the simulated volume should be re-inserted using the periodic boundary conditions
   //     NOTE: the interval [0,L) is closed from below and open from above
   for(i=0; i<n; ++i){
       if( (*x_m)[i] < 0 ){ (*x_m)[i] += l; }else if( (*x_m)[i] >= l ){ (*x_m)[i] -= l; }
@@ -898,7 +1018,7 @@ void UpdateSim_MidpMeth( double dt, int n, double v0, double ** v, double ** v_m
   // ----------------------------------------
 
   // 3a, for each particle: initialize the components of the sum of forces acting on the particle
-  for(i=0; i<n; ++i){ (*fxSum_m)[i] = 0.0; (*fySum_m)[i] = 0.0; (*fzSum_m)[i] = 0.0; };
+  for(i=0; i<n; ++i){ (*fxSum_m)[*ic][i] = 0.0; (*fySum_m)[*ic][i] = 0.0; (*fzSum_m)[*ic][i] = 0.0; };
 
   // 3b, self-propelling force
   // IF the magnitude of the particle's current velocity is not v0, THEN it has a non-zero self-propelling force
@@ -907,27 +1027,36 @@ void UpdateSim_MidpMeth( double dt, int n, double v0, double ** v, double ** v_m
       // compute the magnitude of the self-propelling force
       double q_m = ( v0 - (*v_m)[i] ) * one_over_tau;
       // add components of the self-propelling force to the components of the sum of forces acting on the <i>th particle
-      (*fxSum_m)[i] += q_m * (*ex_m)[i];
-      (*fySum_m)[i] += q_m * (*ey_m)[i];
-      (*fzSum_m)[i] += q_m * (*ez_m)[i]; 
+      (*fxSum_m)[*ic][i] += q_m * (*ex_m)[i];
+      (*fySum_m)[*ic][i] += q_m * (*ey_m)[i];
+      (*fzSum_m)[*ic][i] += q_m * (*ez_m)[i]; 
   }
 
   // 3c, add interactions to the forces
-  AddInteractionsToForces( bn, bxyz2n_m, bxyz2i, bp_m, pn_m, x_m, y_m, z_m, cutoff_rSqr, fxSum_m, fySum_m, fzSum_m, l );
+  AddInteractionsToForces( bn, bxyz2n_m, bxyz2i, bp_m, pn_m, x_m, y_m, z_m, cutoff_rSqr, (*fxSum_m)+*ic, (*fySum_m)+*ic, (*fzSum_m)+*ic, l );
 
   // 3d, IF the noise amplitude is non-zero, THEN add noise to the forces
   //     NOTE: amplitude of noise is   sqrt ( dt )
   if( s > 0.0 ){
-      // noise amplitude (length of the noise vector)
+      // noise amplitude/magnitude (length of the noise vector)
       double noiseMagn = s * sqrt( dt );
       for(i=0; i<n; ++i){
 	  // generate a unit vector pointing in a direction distributed evenly in the 4 PI solid angle
 	  double noiseDir_x, noiseDir_y, noiseDir_z;
 	  Generate3dVector_randomDir_unitLength( & noiseDir_x, & noiseDir_y, & noiseDir_z );
-	  // add constant times this unit vector to the sum of the forces acting on the <i>th particle
-	  (*fxSum_m)[i] += noiseMagn * noiseDir_x;
-	  (*fySum_m)[i] += noiseMagn * noiseDir_y;
-	  (*fzSum_m)[i] += noiseMagn * noiseDir_z;
+	  // add this unit vector multiplied by 'noiseMagn' to the sum of the forces acting on the <i>th particle
+	  (*fxSum_m)[*ic][i] += noiseMagn * noiseDir_x;
+	  (*fySum_m)[*ic][i] += noiseMagn * noiseDir_y;
+	  (*fzSum_m)[*ic][i] += noiseMagn * noiseDir_z;
+      }
+  }
+
+  // 3e, IF we are at the first simulation update, THEN copy current values into all past values
+  if( * is_first_update ){
+      int it; for(it=1; it<=mtl; ++it){ // at the first update ic = 0, so the range of all other values is it=1..mtl
+	  (*fxSum_m)[it][i] = (*fxSum_m)[*ic][i]; 
+	  (*fySum_m)[it][i] = (*fySum_m)[*ic][i]; 
+	  (*fzSum_m)[it][i] = (*fzSum_m)[*ic][i]; 
       }
   }
 
@@ -939,10 +1068,10 @@ void UpdateSim_MidpMeth( double dt, int n, double v0, double ** v, double ** v_m
       (* x)[i] = (* x_m)[i] + dt * (*   vx_m)[i];
       (* y)[i] = (* y_m)[i] + dt * (*   vy_m)[i];
       (* z)[i] = (* z_m)[i] + dt * (*   vy_m)[i];
-      // velocity vector at the final point of the simulation update
-      (*vx)[i] = (*vx_m)[i] + dt * (*fxSum_m)[i];
-      (*vy)[i] = (*vy_m)[i] + dt * (*fySum_m)[i];
-      (*vz)[i] = (*vz_m)[i] + dt * (*fzSum_m)[i];
+      // velocity vector at the final point of the simulation update based on the sum of forces in the past
+      (*vx)[i] = (*vx_m)[i] + dt * (*fxSum_m)[*icn][i];
+      (*vy)[i] = (*vy_m)[i] + dt * (*fySum_m)[*icn][i];
+      (*vz)[i] = (*vz_m)[i] + dt * (*fzSum_m)[*icn][i];
       // speed at the final point of the simulation update
       ( *v)[i] = sqrt( SQR( (*vx)[i] ) + SQR( (*vy)[i] ) + SQR( (*vz)[i] ) );
       double one_over_v = 1.0 / (*v)[i];
@@ -952,7 +1081,7 @@ void UpdateSim_MidpMeth( double dt, int n, double v0, double ** v, double ** v_m
       (*ez)[i] = (*vz)[i] * one_over_v;
   }
   
-  // 4b, particles leaving the field should be re-inserted using the periodic boundary conditions
+  // 4b, particles leaving the simulated volume should be re-inserted using the periodic boundary conditions
   //     NOTE: the interval [0,L) is closed from below and open from above
   for(i=0; i<n; ++i){
       if( (*x)[i] < 0 ){ (*x)[i] += l; }else if( (*x)[i] >= l ){ (*x)[i] -= l; }
@@ -981,7 +1110,11 @@ void UpdateSim_MidpMeth( double dt, int n, double v0, double ** v, double ** v_m
 
   // ----------------------------------------
 
-  // 5, update previous and current simulation time, update wall clock time (wt)
-  * stPrev = * stNow; * stNow += dt;
-  * wtNow = (uli)time(NULL);
+  // 5, update counters
+  // previous and current simulation time, wall clock time (wt)
+  * stPrev = * stNow; * stNow += dt; * wtNow = (uli)time(NULL);
+  // current index in the circular arrays saving past data, next index (which is also the index of the time step tau time ago)
+  * ic = * icn; * icn = nextNumberWithModulo( * ic, mtl + 1 );
+  // even if this has been the first simulation update, the next will not be the first
+  * is_first_update = 0;
 }
