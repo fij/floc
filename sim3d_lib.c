@@ -398,17 +398,18 @@ void Init( int argc, char * argv[], int * rndSeed, int * n, int * startState, do
   AllocInit_int3tensor( bp,   *bn, *bn, *bn, CHAIN_END ); AllocInit_int3tensor( bxyz2n,   *bn, *bn, *bn, 0 );
   AllocInit_int3tensor( bp_m, *bn, *bn, *bn, CHAIN_END ); AllocInit_int3tensor( bxyz2n_m, *bn, *bn, *bn, 0 );
   // allocate memory to the constant table converting between the two types of grid cell indexing
+  * bxyz2i = (int***)calloc( * bn, sizeof(int**) ); 
   int ix; for(ix=0;ix<*bn;++ix){
-      * bxyz2i = (int***)calloc( * bn, sizeof(int**) ); 
+      ( * bxyz2i )[ix] = (int**)calloc( * bn, sizeof(int*) );
       int iy; for(iy=0;iy<*bn;++iy){
-	  ( * bxyz2i )[ix] = (int**)calloc( * bn, sizeof(int*) );
+	  ( * bxyz2i )[ix][iy] = (int*)calloc( * bn, sizeof(int) );
 	  int iz; for(iz=0;iz<*bn;++iz){
-	      ( * bxyz2i )[ix][iy] = (int*)calloc( * bn, sizeof(int) );
 	      // mapping the three coordinates of a grid cell to a single grid cell index
 	      ( * bxyz2i )[ix][iy][iz] = ( ( ix * (*bn) ) + iy ) * (*bn) + iz;
 	  }
       }
   }
+  // test // int ix2; for(ix2=0;ix2<*bn;++ix2){ int iy; for(iy=0;iy<*bn;++iy){ int iz; for(iz=0;iz<*bn;++iz){ fprintf(stdout,"bxyz2i[%d][%d][%d]=%d\n",ix2,iy,iz,(*bxyz2i)[ix2][iy][iz]);fflush(stdout); }}}
 
 
   // allocate memory to the book-keeping showing for each particle the next particle in its book-keeping grid cell, _m: at the midpoint of the sim.update
@@ -768,11 +769,14 @@ void AddInteractionsToForces( int bn, int **** bxyz2n, int **** bxyz2i, int ****
       // (dx,dy,dz): relative position of the other grid cell from the current grid cell
       int dx; for(dx=-1; dx<=1; ++dx){ int dy; for(dy=-1; dy<=1; ++dy){ int dz; for(dz=-1; dz<=1; ++dz){
 	  // IF the investigated other grid cell is the same as the current grid cell, THEN proceed only if this grid cell contains at least two particles 
+
 	  if( ! dx && ! dy && ! dz ){ // if( 0 == dx && 0 == dy && 0 == dz ){
 	      if( 2 <= (*bxyz2n)[ix][iy][iz] ){
+
 		  // loop through the list of particles in the current grid cell
 		  // j1: the index of the first particle in the current grid cell
 		  int j1 = (*bp)[ix][iy][iz]; while( CHAIN_END != j1 ){
+
 		      // j2: the index of the other particle in the current grid cell
 		      // NOTE: each pair of particles is considered only once
 		      int j2 = (*pn)[j1]; while( CHAIN_END != j2 ){
@@ -791,6 +795,7 @@ void AddInteractionsToForces( int bn, int **** bxyz2n, int **** bxyz2i, int ****
 			      double fx = signed_x_dist_from_j2_to_j1 * f_over_r;
 			      double fy = signed_y_dist_from_j2_to_j1 * f_over_r;
 			      double fz = signed_z_dist_from_j2_to_j1 * f_over_r;
+
 			      // increment the components of the sum of forces acting on particle j1
 			      (*fxSum)[j1] += fx;
 			      (*fySum)[j1] += fy;
@@ -799,6 +804,7 @@ void AddInteractionsToForces( int bn, int **** bxyz2n, int **** bxyz2i, int ****
 			      (*fxSum)[j2] -= fx;
 			      (*fySum)[j2] -= fy;
 			      (*fzSum)[j2] -= fz;
+
 			  }
 			  // step to next particle or the "CHAIN_END" marker of the current book-keeping field 
 			  j2 = (*pn)[j2];
@@ -807,9 +813,11 @@ void AddInteractionsToForces( int bn, int **** bxyz2n, int **** bxyz2i, int ****
 		      j1 = (*pn)[j1];
 		  }
 	      }
+
 	  }
 	  // IF the investigated other grid cell is different from the current grid cell
 	  else{
+
  	      // (jx,jy,jz): the coordinates of the investigated other grid cell that is at a relative position (dx,dy,dz) from the current grid cell
 	      // xo: due to the periodic boundaries in the book-keeping the relative position of the neighboring cell 
 	      //     is ( dx + xo * BN , dy + yo * BN , dz + zo * BN ) from the current cell  ( xo can be = -1, 0, +1 )
@@ -940,7 +948,7 @@ void UpdateSim_MidpMeth(
       (*fySum)[*ic][i] += q * (*ey)[i];
       (*fzSum)[*ic][i] += q * (*ez)[i];
   }
-    
+
   // 1c, add interactions to the forces
   AddInteractionsToForces( bn, bxyz2n, bxyz2i, bp, pn, x, y, z, cutoff_rSqr, (*fxSum)+*ic, (*fySum)+*ic, (*fzSum)+*ic, l );
 
