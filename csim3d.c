@@ -80,9 +80,11 @@ int main( int ArgC, char * ArgV[] )
       {
 	  WriteOutputData( _N, _X, _Y, _Z, _VX, _VY, _VZ, _V0, _ST_NOW );
       }
-      // update the simulation with the midpoint method
+      // Update the simulation with the midpoint method
+      // Note: IF the simulation is started from the ordered state, THEN before reaching warmUpTime the applied noise is zero
       UpdateSim_MidpMeth(
-			  _DT, _MTL, & _IC, & _ICN, & _IS_FIRST_UPDATE, _N, _V0, _TAU, _S, _L, SQR(_R), & _ST_NOW, & _ST_PREV, & _WT_NOW,
+			  _DT, _MTL, & _IC, & _ICN, & _IS_FIRST_UPDATE, _N, _V0, _TAU, ( ( _ST_NOW < _WARM_UP_TIME ) ? 0.0 : _S ),
+			  _L, SQR( _R ), & _ST_NOW, & _ST_PREV, & _WT_NOW,
 
 			  & _X,    & _Y,    & _Z,    & _VX,       & _VY,       & _VZ,       & _V, 
 			  & _X_M,  & _Y_M,  & _Z_M,  & _VX_M,     & _VY_M,     & _VZ_M,     & _V_M, 
