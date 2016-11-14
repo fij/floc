@@ -12,4 +12,4 @@ For the description of the arguments: run 'csim3d' without arguments (or an inco
 
 Test run: csim3d 123456 200 1 50 10 5 1 0.0 10 0.001 50 0 1.0 110 1 30 0 -1
 
-Output line: simulation time, efficiency (order parameter), direction of the vectorial sum of velocity vectors (x, y, z components)
+Output line: simulation time, efficiency (order parameter), direction of the vectorial sum of velocity vectors
