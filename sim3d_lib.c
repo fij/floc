@@ -43,10 +43,10 @@
 //
 // -------- output --------
 //
-// IF startState = 0
+// IF startState = 0 (i.e., the simulation is started from the ordered state)
 // THEN: saving data at simulation time values of  t_i = 10 ** ( i / n ) for i = 0, 1, 2, ...
-// ELSE:
-// - saving at these times,
+// ELSE (i.e., for all non-zero values of the variable 'startState'):
+// - saving at these t_i time values
 // - saving at simulation time        t_warmUp = N * L / V0
 // - saving at times            t_i + t_warmUp
 //
@@ -141,7 +141,7 @@ int _SAVE_FREQ_N; // saveFreqN = n: determines the simulation time values at whi
 int _DRAW_SLEEP_WT; // number of seconds to sleep after drawing (WT: Wall clock Time)
 double _ST_NOW, _ST_PREV; // current and previous simulation time
 double _ST_MAX; // maximum simulation time for which the the program should be run
-double _WARM_UP_TIME; // IF the simulation is started from the ordered state, THEN saving starts from this time value (see above at "output")
+double _WARM_UP_TIME; // IF the simulation is started from the ordered state, THEN noise is turned on after his amount of simulation time
 int _IS_FIRST_UPDATE; // 1: we are at the first update step, 0: we are not
 
 // ----- geometry and book-keeping -----
@@ -334,7 +334,7 @@ void Init( int argc, char * argv[], int * rndSeed, int * n, int * startState, do
 {
   // ------------- initialize parameters -----------------
   // IF the number of arguments is incorrect, THEN write to stderr how to use the program
-  if( 18 != argc ){
+  if( 19 != argc ){
 
     fprintf(stderr,"\n\tUsage: %s \\\n",argv[0]);
     fprintf(stderr,  "\t       \\\n");
@@ -349,6 +349,10 @@ void Init( int argc, char * argv[], int * rndSeed, int * n, int * startState, do
     fprintf(stderr,  "\t       <v0: preferred velocity (length of velocity vector) for each particle> \\\n");
     fprintf(stderr,  "\t       <tau: time constant for adjusting the length of the velocity vector to the preferred value, v0> \\\n");
     fprintf(stderr,  "\t       <noise amplitude (set to zero before \'warmUpTime\' (see sim3d.c)> \\\n");
+    fprintf(stderr,  "\t       <\"warm up time\" (t_warmUp) is applied only when the simulation is started from the ordered state: \\\n");
+    fprintf(stderr,  "\t         - noise is turned on after t_warmUp simulation time \\\n");
+    fprintf(stderr,  "\t         - after time=0 data is written to output only starting from t_warmUp \\\n");
+    fprintf(stderr,  "\t         - the counter of the logarithmic time intervals for saving data is started at t_warmUp> \\\n");
     fprintf(stderr,  "\t       <time step of one full simulation update (with the midpoint method)> \\\n");
     fprintf(stderr,  "\t       <an _integer_ Multiplier for the Time Lag (mtl) = length of time lag (tau) / length of simulation update step (dt)> \\\n");
     fprintf(stderr,  "\t       \\\n");
@@ -376,6 +380,7 @@ void Init( int argc, char * argv[], int * rndSeed, int * n, int * startState, do
   * v0     = atof(argv[++iArg]);
   * tau    = atof(argv[++iArg]);
   * s      = atof(argv[++iArg]);
+  * warmUpTime = atof(argv[++iArg]);
   * dt     = atof(argv[++iArg]);
   * mtl    = atoi(argv[++iArg]);
   //
@@ -530,9 +535,6 @@ void Init( int argc, char * argv[], int * rndSeed, int * n, int * startState, do
       (*vy)[i] = (*v)[i] * (*ey)[i];
       (*vz)[i] = (*v)[i] * (*ez)[i];
   }
-
-  // ------- initializing other variables --------
-  *warmUpTime = 1.0 * *n * *l / *v0; // simulation "warm up time" when starting from the ordered state, see in the header of this file at "output"
 
 
   // ------- set variables for displaying the simulation on the X11 output, start X11 output ------
@@ -1009,11 +1011,11 @@ void UpdateSim_MidpMeth(
   double bn_over_l = 1.0*bn/l; for(i=0; i<n; ++i){ CoordsToGridCellIndexes( (*x_m)[i], (*y_m)[i], (*z_m)[i], bn, bn_over_l, *pfx_m + i, *pfy_m + i, *pfz_m + i ); }
   // 2d, set book-keeping data structures at the midpoint
   // default: identical to original values
-  for(i=0; i<n; ++i){ (*pn_m)[i] = (*pn)[i]; }; 
+  for(i=0; i<n; ++i){ (*pn_m)[i] = (*pn)[i]; };
   int ix; for(ix=0; ix<bn; ++ix){ int iy; for(iy=0; iy<bn; ++iy){ int iz; for(iz=0; iz<bn; ++iz){
       (*bp_m)[ix][iy][iz] = (*bp)[ix][iy][iz]; (*bxyz2n_m)[ix][iy][iz] = (*bxyz2n)[ix][iy][iz]; }}}
   // check all particles: IF there is a change, THEN change the book-keeping table accoringly
-  for(i=0; i<n; ++i){  
+  for(i=0; i<n; ++i){
       // IF the current particle has moved to a different book-keeping cell, THEN change its book-keeping tables at the midpoint
       if( (*pfx_m)[i] != (*pfx)[i] || (*pfy_m)[i] != (*pfy)[i] || (*pfz_m)[i] != (*pfz)[i] ){
 	  // in the midpoint book-keeping (bp_m, pn_m, bxyz2n_m) remove the particle from its original grid cell (pfx[i], pfy[i], pfz[i])

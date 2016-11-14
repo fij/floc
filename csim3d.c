@@ -57,7 +57,7 @@ int main( int ArgC, char * ArgV[] )
 	  || (    ( _ST_NOW >= _N * _DT )
 	                 // IF the simulation is started from the disordered state, 
 	       && (    (    ( 0 == _START_STATE )
-			    // THEN save at the selected t_i = 1 * 10 ** ( i / n ) simulation time values
+			    // THEN save at the selected t_i = 1 * 10 ** ( i / n ) simulation times
 			 && (   floor( _SAVE_FREQ_N * log( _ST_PREV ) / log( 10.0 ) )
 			      < floor( _SAVE_FREQ_N * log( _ST_NOW  ) / log( 10.0 ) ) 
 			    )
@@ -65,9 +65,10 @@ int main( int ArgC, char * ArgV[] )
 		    ||
 		       // IF the simulation is started from the ordered state, 
 		       (    ( 0 != _START_STATE )
-			    // THEN save at t_warmUp (warm-up time)
+			    // THEN after time = 0
+			    // save at t_warmUp (warm-up time)
 			 && (    ( _WARM_UP_TIME <= _ST_NOW && _ST_NOW < _WARM_UP_TIME + 2.0 * _DT )
-			    // and after that at the  t_i - t_warmUp  times
+			    // AND after that at the  t_i - t_warmUp  simulation times
 			      || (    ( _ST_NOW >= _WARM_UP_TIME + _N * _DT )
 				   && (   floor( _SAVE_FREQ_N * log( _ST_PREV - _WARM_UP_TIME ) / log( 10.0 ) )
 					< floor( _SAVE_FREQ_N * log( _ST_NOW  - _WARM_UP_TIME ) / log( 10.0 ) ) )
@@ -83,7 +84,7 @@ int main( int ArgC, char * ArgV[] )
       // Update the simulation with the midpoint method
       // Note: IF the simulation is started from the ordered state, THEN before reaching warmUpTime the applied noise is zero
       UpdateSim_MidpMeth(
-			  _DT, _MTL, & _IC, & _ICN, & _IS_FIRST_UPDATE, _N, _V0, _TAU, ( ( _ST_NOW < _WARM_UP_TIME ) ? 0.0 : _S ),
+			  _DT, _MTL, & _IC, & _ICN, & _IS_FIRST_UPDATE, _N, _V0, _TAU, ( ( ( 0 != _START_STATE ) && ( _ST_NOW < _WARM_UP_TIME ) ) ? 0.0 : _S ),
 			  _L, SQR( _R ), & _ST_NOW, & _ST_PREV, & _WT_NOW,
 
 			  & _X,    & _Y,    & _Z,    & _VX,       & _VY,       & _VZ,       & _V, 
