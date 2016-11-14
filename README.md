@@ -10,4 +10,6 @@ detailed doc: please see inside csim3d.c and sim3d_lib.c
 
 test run: csim3d 123456 200 1 50 10 5 1 0.0 10 0.001 50 0 1.0 110 1 30 0 -1
 
+description of command-line arguments: run 'csim3d' without arguments (or an incorrect number of arguments)
+
 output line: simulation time, efficiency (order parameter), direction of the vectorial sum of velocity vectors (x, y, z components)
