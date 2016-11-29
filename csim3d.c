@@ -4,7 +4,7 @@
 // - continuous model of interacting particles in 3d
 //
 // DETAILED DOC:
-// - read sim3d_lib.c (starting at the top, proceeding towards the bottom):
+// - please read inside sim3d_lib.c (starting at the top, proceeding towards the bottom):
 //   = global constants, parameters and variables
 //   = at the beginning of each function definition
 //
