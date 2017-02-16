@@ -1,6 +1,6 @@
 floc (flocking): 3d simulation of interacting self-driven particles
 
-Midpoint integration of the equations of motion that are continuous in space and time
+Midpoint integration of the equations of motion that are continuous in both space and time
 
 Start state ordered/disordered, self-propelling to preferred speed, repulsive radial interactions, noise, time lag
 
