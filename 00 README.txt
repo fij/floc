@@ -12,7 +12,7 @@ I have done a significant amount of post-processing on the output data, mainly w
 
 Compiling: gcc csim3d.c -Wall -lm -O3 -o csim3d
 
-Detailed doc: please see inside csim3d.c and sim3d_lib.c
+Detailed doc: please see inside csim3d.c and sim3d_lib.c -- starting at the top of the two files.
 
 For the description of the arguments: run 'csim3d' without arguments (or with an incorrect number of arguments)
 
